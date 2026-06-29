@@ -1,19 +1,23 @@
 package main
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"database/sql"
 	"errors"
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
 	"runtime/debug"
+	"strings"
 
 	"github.com/go-gorp/gorp/v3"
+	"github.com/go-sql-driver/mysql"
 	"gopkg.in/yaml.v2"
 
 	migrate "github.com/rubenv/sql-migrate"
 
-	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -41,6 +45,12 @@ type Environment struct {
 	TableName     string `yaml:"table"`
 	SchemaName    string `yaml:"schema"`
 	IgnoreUnknown bool   `yaml:"ignoreunknown"`
+
+	MySQLClientCert string `yaml:"mysql-client-cert"`
+	MySQLClientKey  string `yaml:"mysql-client-key"`
+	MySQLCACert     string `yaml:"mysql-ca-cert"`
+	MySQLServerName string `yaml:"mysql-server-name"`
+	MySQLTLSConfig  string `yaml:"mysql-tls-config"`
 }
 
 func ReadConfig() (map[string]*Environment, error) {
@@ -96,6 +106,10 @@ func GetEnvironment() (*Environment, error) {
 }
 
 func GetConnection(env *Environment) (*sql.DB, string, error) {
+	if err := prepareMySQLTLS(env); err != nil {
+		return nil, "", fmt.Errorf("Cannot configure MySQL TLS: %w", err)
+	}
+
 	db, err := sql.Open(env.Dialect, env.DataSource)
 	if err != nil {
 		return nil, "", fmt.Errorf("Cannot connect to database: %w", err)
@@ -108,6 +122,83 @@ func GetConnection(env *Environment) (*sql.DB, string, error) {
 	}
 
 	return db, env.Dialect, nil
+}
+
+func prepareMySQLTLS(env *Environment) error {
+	if env.Dialect != "mysql" || !env.hasMySQLTLSConfig() {
+		return nil
+	}
+
+	if env.MySQLClientCert == "" {
+		return errors.New("mysql-client-cert is required when configuring MySQL TLS")
+	}
+	if env.MySQLClientKey == "" {
+		return errors.New("mysql-client-key is required when configuring MySQL TLS")
+	}
+	if dataSourceHasTLSParam(env.DataSource) {
+		return errors.New("datasource tls parameter conflicts with MySQL client certificate config")
+	}
+
+	cfg, err := mysql.ParseDSN(env.DataSource)
+	if err != nil {
+		return fmt.Errorf("parse MySQL datasource: %w", err)
+	}
+
+	cert, err := tls.LoadX509KeyPair(env.MySQLClientCert, env.MySQLClientKey)
+	if err != nil {
+		return fmt.Errorf("load MySQL client certificate %q and key %q: %w", env.MySQLClientCert, env.MySQLClientKey, err)
+	}
+
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		ServerName:   env.MySQLServerName,
+	}
+
+	if env.MySQLCACert != "" {
+		rootCAs := x509.NewCertPool()
+		caCert, err := os.ReadFile(env.MySQLCACert)
+		if err != nil {
+			return fmt.Errorf("read MySQL CA certificate %q: %w", env.MySQLCACert, err)
+		}
+		if ok := rootCAs.AppendCertsFromPEM(caCert); !ok {
+			return fmt.Errorf("read MySQL CA certificate %q: no certificates found", env.MySQLCACert)
+		}
+		tlsConfig.RootCAs = rootCAs
+	}
+
+	configName := env.MySQLTLSConfig
+	if configName == "" {
+		configName = "sql-migrate"
+	}
+	if err := mysql.RegisterTLSConfig(configName, tlsConfig); err != nil {
+		return fmt.Errorf("register MySQL TLS config %q: %w", configName, err)
+	}
+
+	cfg.TLSConfig = configName
+	env.DataSource = cfg.FormatDSN()
+	return nil
+}
+
+func (env *Environment) hasMySQLTLSConfig() bool {
+	return env.MySQLClientCert != "" ||
+		env.MySQLClientKey != "" ||
+		env.MySQLCACert != "" ||
+		env.MySQLServerName != "" ||
+		env.MySQLTLSConfig != ""
+}
+
+func dataSourceHasTLSParam(dataSource string) bool {
+	questionMark := strings.Index(dataSource, "?")
+	if questionMark == -1 {
+		return false
+	}
+
+	values, err := url.ParseQuery(dataSource[questionMark+1:])
+	if err != nil {
+		return strings.Contains(dataSource[questionMark+1:], "tls=")
+	}
+	_, ok := values["tls"]
+	return ok
 }
 
 // GetVersion returns the version.
