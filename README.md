@@ -137,6 +137,25 @@ production:
 
 See [here](https://github.com/go-sql-driver/mysql#parsetime) for more information.
 
+### MySQL Client Certificate Auth
+
+For MySQL servers that require client certificate authentication, configure the certificate files in the environment. `sql-migrate` registers a MySQL TLS config and adds the matching `tls` option to the datasource automatically.
+
+```yml
+production:
+  dialect: mysql
+  datasource: user:password@tcp(mysql.example.com:3306)/dbname?parseTime=true
+  dir: migrations/mysql
+  table: migrations
+  mysql-client-cert: /path/client-cert.pem
+  mysql-client-key: /path/client-key.pem
+  mysql-ca-cert: /path/ca-cert.pem
+  mysql-server-name: mysql.example.com
+  mysql-tls-config: sql-migrate
+```
+
+`mysql-client-cert` and `mysql-client-key` are required when enabling this mode. `mysql-ca-cert`, `mysql-server-name`, and `mysql-tls-config` are optional. Do not set `tls=` in the datasource when using these fields, because `sql-migrate` manages that option.
+
 ### Oracle (oci8)
 
 Oracle Driver is [oci8](https://github.com/mattn/go-oci8), it is not pure Go code and relies on Oracle Office Client ([Instant Client](https://www.oracle.com/database/technologies/instant-client/downloads.html)), more detailed information is in the [oci8 repo](https://github.com/mattn/go-oci8).
