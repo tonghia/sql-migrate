@@ -137,9 +137,22 @@ production:
 
 See [here](https://github.com/go-sql-driver/mysql#parsetime) for more information.
 
-### MySQL Client Certificate Auth
+### MySQL TLS Certificates
 
-For MySQL servers that require client certificate authentication, configure the certificate files in the environment. `sql-migrate` registers a MySQL TLS config and adds the matching `tls` option to the datasource automatically.
+For MySQL servers that use certificates signed by a private CA, configure `mysql-ca-cert`. `sql-migrate` registers a MySQL TLS config and adds the matching `tls` option to the datasource automatically.
+
+```yml
+production:
+  dialect: mysql
+  datasource: user:password@tcp(mysql.example.com:3306)/dbname?parseTime=true
+  dir: migrations/mysql
+  table: migrations
+  mysql-ca-cert: /path/ca-cert.pem
+  mysql-server-name: mysql.example.com
+  mysql-tls-config: sql-migrate
+```
+
+For MySQL servers that require client certificate authentication, also configure the client certificate and key:
 
 ```yml
 production:
@@ -154,7 +167,7 @@ production:
   mysql-tls-config: sql-migrate
 ```
 
-`mysql-client-cert` and `mysql-client-key` are required when enabling this mode. `mysql-ca-cert`, `mysql-server-name`, and `mysql-tls-config` are optional. Do not set `tls=` in the datasource when using these fields, because `sql-migrate` manages that option.
+`mysql-client-cert` and `mysql-client-key` must be provided together. `mysql-ca-cert` can be used without a client certificate for server certificate verification. Do not set `tls=` in the datasource when using these fields, because `sql-migrate` manages that option.
 
 ### Oracle (oci8)
 
