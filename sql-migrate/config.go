@@ -129,11 +129,14 @@ func prepareMySQLTLS(env *Environment) error {
 		return nil
 	}
 
-	if env.MySQLClientCert == "" {
-		return errors.New("mysql-client-cert is required when configuring MySQL TLS")
+	if env.MySQLClientCert == "" && env.MySQLClientKey != "" {
+		return errors.New("mysql-client-cert is required when mysql-client-key is set")
 	}
-	if env.MySQLClientKey == "" {
-		return errors.New("mysql-client-key is required when configuring MySQL TLS")
+	if env.MySQLClientCert != "" && env.MySQLClientKey == "" {
+		return errors.New("mysql-client-key is required when mysql-client-cert is set")
+	}
+	if env.MySQLClientCert == "" && env.MySQLCACert == "" {
+		return errors.New("mysql-ca-cert or mysql-client-cert/mysql-client-key is required when configuring MySQL TLS")
 	}
 	if dataSourceHasTLSParam(env.DataSource) {
 		return errors.New("datasource tls parameter conflicts with MySQL client certificate config")
@@ -144,14 +147,8 @@ func prepareMySQLTLS(env *Environment) error {
 		return fmt.Errorf("parse MySQL datasource: %w", err)
 	}
 
-	cert, err := tls.LoadX509KeyPair(env.MySQLClientCert, env.MySQLClientKey)
-	if err != nil {
-		return fmt.Errorf("load MySQL client certificate %q and key %q: %w", env.MySQLClientCert, env.MySQLClientKey, err)
-	}
-
 	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		ServerName:   env.MySQLServerName,
+		ServerName: env.MySQLServerName,
 	}
 
 	if env.MySQLCACert != "" {
@@ -164,6 +161,14 @@ func prepareMySQLTLS(env *Environment) error {
 			return fmt.Errorf("read MySQL CA certificate %q: no certificates found", env.MySQLCACert)
 		}
 		tlsConfig.RootCAs = rootCAs
+	}
+
+	if env.MySQLClientCert != "" {
+		cert, err := tls.LoadX509KeyPair(env.MySQLClientCert, env.MySQLClientKey)
+		if err != nil {
+			return fmt.Errorf("load MySQL client certificate %q and key %q: %w", env.MySQLClientCert, env.MySQLClientKey, err)
+		}
+		tlsConfig.Certificates = []tls.Certificate{cert}
 	}
 
 	configName := env.MySQLTLSConfig
