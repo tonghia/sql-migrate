@@ -5,15 +5,19 @@ export PATH=$PATH:$HOME/gopath/bin
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 # Defaults match the local Docker TLS setup used for manual testing.
 # Set MYSQL_CLIENT_CERT and MYSQL_CLIENT_KEY to test a REQUIRE X509 user.
 export SQL_MIGRATE=${SQL_MIGRATE:-sql-migrate}
+export MYSQL_TLS_WORKDIR=${MYSQL_TLS_WORKDIR:-/tmp/sql-migrate-mtls-test}
 export MYSQL_USER=${MYSQL_USER:-caonly}
 export DATABASE_NAME=${DATABASE_NAME:-test_caonly}
 export MYSQL_PASSWORD=${MYSQL_PASSWORD:-caonlypass}
 export MYSQL_HOST=${MYSQL_HOST:-127.0.0.1}
 export MYSQL_PORT=${MYSQL_PORT:-13306}
-export MYSQL_CA_CERT=${MYSQL_CA_CERT:-/tmp/sql-migrate-mtls-test/certs/ca.pem}
+export MYSQL_CA_CERT=${MYSQL_CA_CERT:-$MYSQL_TLS_WORKDIR/certs/ca.pem}
 export MYSQL_CLIENT_CERT=${MYSQL_CLIENT_CERT:-}
 export MYSQL_CLIENT_KEY=${MYSQL_CLIENT_KEY:-}
 export MYSQL_SERVER_NAME=${MYSQL_SERVER_NAME:-localhost}
@@ -22,6 +26,7 @@ export MYSQL_TLS_CONFIG_FILE=${MYSQL_TLS_CONFIG_FILE:-/tmp/sql-migrate-mysql-tls
 
 if [ ! -f "$MYSQL_CA_CERT" ]; then
 	echo "MYSQL_CA_CERT does not exist: $MYSQL_CA_CERT" >&2
+	echo "Run test-integration/mysql-tls-setup.sh to create the default Docker TLS environment." >&2
 	exit 1
 fi
 
@@ -39,7 +44,7 @@ cat >"$MYSQL_TLS_CONFIG_FILE" <<EOF
 mysql_tls:
   dialect: mysql
   datasource: ${MYSQL_USER}:${MYSQL_PASSWORD}@tcp(${MYSQL_HOST}:${MYSQL_PORT})/${DATABASE_NAME}?parseTime=true
-  dir: test-migrations
+  dir: ${REPO_ROOT}/test-migrations
   mysql-ca-cert: ${MYSQL_CA_CERT}
   mysql-server-name: ${MYSQL_SERVER_NAME}
   mysql-tls-config: ${MYSQL_TLS_CONFIG}
