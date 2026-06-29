@@ -70,6 +70,30 @@ func (*ConfigSuite) TestPrepareMySQLTLSRegistersConfigAndPreservesDatasource(c *
 	c.Assert(cfg.Timeout, Equals, 5*time.Second)
 }
 
+func (*ConfigSuite) TestPrepareMySQLTLSAllowsCAOnlyConfig(c *C) {
+	dir := c.MkDir()
+	_, _, caFile := writeTestCertificates(c, dir)
+	configName := "sql-migrate-test-ca-only"
+	defer mysql.DeregisterTLSConfig(configName)
+
+	env := &Environment{
+		Dialect:         "mysql",
+		DataSource:      "user:password@tcp(localhost:3306)/dbname?parseTime=true&timeout=5s",
+		MySQLCACert:     caFile,
+		MySQLServerName: "localhost",
+		MySQLTLSConfig:  configName,
+	}
+
+	err := prepareMySQLTLS(env)
+	c.Assert(err, IsNil)
+
+	cfg, err := mysql.ParseDSN(env.DataSource)
+	c.Assert(err, IsNil)
+	c.Assert(cfg.TLSConfig, Equals, configName)
+	c.Assert(cfg.ParseTime, Equals, true)
+	c.Assert(cfg.Timeout, Equals, 5*time.Second)
+}
+
 func (*ConfigSuite) TestPrepareMySQLTLSDefaultsConfigName(c *C) {
 	dir := c.MkDir()
 	certFile, keyFile, _ := writeTestCertificates(c, dir)
@@ -80,6 +104,26 @@ func (*ConfigSuite) TestPrepareMySQLTLSDefaultsConfigName(c *C) {
 		DataSource:      "user:password@tcp(localhost:3306)/dbname?parseTime=true",
 		MySQLClientCert: certFile,
 		MySQLClientKey:  keyFile,
+	}
+
+	err := prepareMySQLTLS(env)
+	c.Assert(err, IsNil)
+
+	cfg, err := mysql.ParseDSN(env.DataSource)
+	c.Assert(err, IsNil)
+	c.Assert(cfg.TLSConfig, Equals, "sql-migrate")
+	c.Assert(cfg.ParseTime, Equals, true)
+}
+
+func (*ConfigSuite) TestPrepareMySQLTLSDefaultsConfigNameForCAOnly(c *C) {
+	dir := c.MkDir()
+	_, _, caFile := writeTestCertificates(c, dir)
+	defer mysql.DeregisterTLSConfig("sql-migrate")
+
+	env := &Environment{
+		Dialect:     "mysql",
+		DataSource:  "user:password@tcp(localhost:3306)/dbname?parseTime=true",
+		MySQLCACert: caFile,
 	}
 
 	err := prepareMySQLTLS(env)
@@ -157,6 +201,20 @@ func (*ConfigSuite) TestPrepareMySQLTLSReportsMissingCertFile(c *C) {
 	c.Assert(err, ErrorMatches, ".*"+missingCert+".*")
 }
 
+func (*ConfigSuite) TestPrepareMySQLTLSReportsMissingCAFile(c *C) {
+	missingCA := filepath.Join(c.MkDir(), "missing-ca.pem")
+
+	env := &Environment{
+		Dialect:        "mysql",
+		DataSource:     "user:password@tcp(localhost:3306)/dbname?parseTime=true",
+		MySQLCACert:    missingCA,
+		MySQLTLSConfig: "sql-migrate-test-missing-ca",
+	}
+
+	err := prepareMySQLTLS(env)
+	c.Assert(err, ErrorMatches, ".*"+missingCA+".*")
+}
+
 func (*ConfigSuite) TestPrepareMySQLTLSReportsInvalidCertPair(c *C) {
 	dir := c.MkDir()
 	certFile := filepath.Join(dir, "client-cert.pem")
@@ -190,6 +248,28 @@ func (*ConfigSuite) TestPrepareMySQLTLSRejectsDatasourceTLSConflict(c *C) {
 
 	err := prepareMySQLTLS(env)
 	c.Assert(err, ErrorMatches, ".*datasource.*tls.*conflict.*")
+}
+
+func (*ConfigSuite) TestPrepareMySQLTLSRejectsConfigNameWithoutTLSMaterial(c *C) {
+	env := &Environment{
+		Dialect:        "mysql",
+		DataSource:     "user:password@tcp(localhost:3306)/dbname?parseTime=true",
+		MySQLTLSConfig: "sql-migrate-test-no-material",
+	}
+
+	err := prepareMySQLTLS(env)
+	c.Assert(err, ErrorMatches, ".*mysql-ca-cert.*mysql-client-cert.*required.*")
+}
+
+func (*ConfigSuite) TestPrepareMySQLTLSRejectsServerNameWithoutTLSMaterial(c *C) {
+	env := &Environment{
+		Dialect:         "mysql",
+		DataSource:      "user:password@tcp(localhost:3306)/dbname?parseTime=true",
+		MySQLServerName: "localhost",
+	}
+
+	err := prepareMySQLTLS(env)
+	c.Assert(err, ErrorMatches, ".*mysql-ca-cert.*mysql-client-cert.*required.*")
 }
 
 func writeTestCertificates(c *C, dir string) (string, string, string) {
